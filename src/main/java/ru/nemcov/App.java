@@ -1,21 +1,15 @@
 package ru.nemcov;
 
 
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Scanner;
+import java.nio.file.StandardOpenOption;
+import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,56 +18,76 @@ public class App {
     public static final Logger logger = LoggerFactory.getLogger(App.class);
 
     public static void main(String[] args) {
-        Set<String> terms = new HashSet<>();
-        Map<String, Path> tempFiles = new HashMap<>();
+        Path dictionatyPath = Paths.get(args[0]);
+        Path parentPath = dictionatyPath.getParent();
+        //String delimiter = args[1] == null ? "=" : args[1];
+        String delimiter = "=";
 
-        try (Stream<String> lines = Files.lines(Paths.get("D:\\Словарь.txt"))) {
-            lines.forEach(line -> {
-                logger.info(String.format("Термин: %s", line));
+        Set<String> terms;
 
-                String[] split = line.split("=");
-                try {
-                    Path temp = Files.createTempFile(split[0], ".txt");
-                    Files.write(temp, split[1].getBytes(StandardCharsets.UTF_8));
-                    tempFiles.put(split[0], temp);
-                } catch (IOException e) {
-                    logger.error(e.getMessage());
-                }
-
-                terms.add(split[0]);
-            });
+        Path tempDirectory;
+        try {
+            tempDirectory = Files.createTempDirectory(parentPath, null);
         } catch (IOException e) {
-            logger.error(e.getMessage());
+            throw new RuntimeException(e);
         }
 
-        ArrayList<String> arrayList = new ArrayList<>(terms);
-        Collections.sort(arrayList);
+        try (Stream<String> lines = Files.lines(dictionatyPath)) {
+            terms = lines
+                    .map(line -> {
+                        logger.info(String.format("Термин: %s", line));
+                        String[] split = line.split(delimiter, 2);
 
-        try (FileWriter fw = new FileWriter("D:\\" + "Sorted_" + new Date().getTime() + ".txt")) {
-            arrayList.forEach(el -> {
-                try {
-                    File nextFile = tempFiles.get(el).toFile();
-                    Scanner scanner = new Scanner(nextFile);
-                    String next = scanner.nextLine();
-
-                    fw.write(el + "=" + next);
-                    fw.write(System.getProperty("line.separator"));
-
-                    scanner.close();
-                } catch (IOException e) {
-                    logger.error(e.getMessage());
-                }
-            });
+                        try {
+                            Files.write(Files.createFile(tempDirectory.resolve(split[0])), split[1].getBytes(StandardCharsets.UTF_8));
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        return split[0];
+                    })
+                    .sorted()
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         } catch (IOException e) {
-            logger.error(e.getMessage());
+            throw new RuntimeException(e);
         }
 
-        tempFiles.values().forEach(p -> {
+        Path path = Paths.get(parentPath + "Словарь_отсортированный.txt");
+        if (Files.exists(path)) {
             try {
-                Files.delete(p);
+                Files.delete(path);
+            } catch (IOException e) {
+                logger.error(e.getMessage());
+            }
+        }
+
+        terms.forEach(el -> {
+            try {
+                Files.write(path, el.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                Files.write(path, delimiter.getBytes(StandardCharsets.UTF_8), StandardOpenOption.APPEND);
+                Files.write(path, Files.readAllBytes(tempDirectory.resolve(el)), StandardOpenOption.APPEND);
+                Files.write(path, System.lineSeparator().getBytes(), StandardOpenOption.APPEND);
+
             } catch (IOException e) {
                 logger.error(e.getMessage());
             }
         });
+
+        try (Stream<Path> tempFiles = Files.list(tempDirectory)) {
+            tempFiles.forEach(file -> {
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        try {
+            Files.deleteIfExists(tempDirectory);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
